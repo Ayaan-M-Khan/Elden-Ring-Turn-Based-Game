@@ -16,7 +16,7 @@ from collections import deque
 # - COIN_* constants: control coin physics behavior.  (COIN_GRAVITY is kept for introspection,
 #   but coin behavior is now friction-only by default to prevent vertical dropping in top-down view.)
 SCREEN_W, SCREEN_H  = 950, 680
-TILE                = 50            # one map tile in pixels
+TILE                = 50            
 FPS                 = 60
 
 DAMAGE_COOLDOWN     = 1000          # ms player invincibility after hit
@@ -27,7 +27,7 @@ SWORD_ARC           = math.pi * 0.9
 CHEST_INTERACT_DIST = 65            # px radius to open a chest
 COIN_COLLECT_DIST   = 22            # px radius to auto-collect coin
 COIN_FRICTION       = 0.82          # velocity damping each frame
-COIN_GRAVITY        = 0.0           # top-down mode: no vertical gravity drop (fixed) ; set >0 for platform-style behavior
+COIN_GRAVITY        = 0.0           # zero gravity for top-down platformer
 COIN_BOUNCE         = 0.38          # velocity retained on wall bounce
 COIN_STOP_SPEED     = 0.4           # below this speed the coin rests
 
@@ -69,27 +69,26 @@ C_SLOT_ACTIVE = ( 60,  60, 100)
 # ═══════════════════════════════════════════════════════════════════
 #  TILE-GRID HELPERS
 # ═══════════════════════════════════════════════════════════════════
-def tile_rect(col, row):
+def tile_rect(col, row): # Get Tile Rect
     """World rect of a tile at (col, row)."""
     return pygame.Rect(col * TILE, row * TILE, TILE, TILE)
 
 
-def world_to_tile(x, y):
+def world_to_tile(x, y): # Convert the world to tiles
     """Pixel position → (col, row)."""
     return x // TILE, y // TILE
 
 
-def tile_center(col, row):
+def tile_center(col, row): # Tile center position in pixels
     return col * TILE + TILE // 2, row * TILE + TILE // 2
 
 
-def norm(dx, dy):
+def norm(dx, dy):  # Get hypotnuse 
     d = math.hypot(dx, dy)
     return (dx / d, dy / d) if d else (0.0, 0.0)
 
 
-# ─── Build a 2-D walkable grid from the wall list ──────────────────
-def build_grid(walls):
+def build_grid(walls): # Build a grid of walkable tiles based on wall positions
     """Return a 2-D bool array: grid[row][col] = True means WALKABLE."""
     grid = [[True] * COLS for _ in range(ROWS)]
     for w in walls:
@@ -99,8 +98,7 @@ def build_grid(walls):
     return grid
 
 
-# ─── BFS pathfinder (tile-level) ───────────────────────────────────
-def bfs_path(grid, start_tile, goal_tile):
+def bfs_path(grid, start_tile, goal_tile): # Breadth-first search for pathfinding on the tile grid, for monsters to get to the player
     """
     BFS from start_tile to goal_tile on the walkable grid.
     Returns a list of (col, row) tiles from start (exclusive) to goal,
@@ -134,10 +132,10 @@ def bfs_path(grid, start_tile, goal_tile):
 
 
 # ─── Tile-aligned spawn helper ──────────────────────────────────────
-def spawn_tile_away_from(avoid_tiles, min_tiles, grid, occupied_tiles=None):
+def spawn_tile_away_from(avoid_tiles, min_tiles, grid, occupied_tiles=None): # Create a spawn point for monsters that is a certain distance away from the player and other monsters, and not on a wall tile
     """
     Return a (col, row) of a walkable tile that is at least min_tiles
-    Chebyshev distance from all avoid_tiles, and not in occupied_tiles.
+    distance from all avoid_tiles, and not in occupied_tiles.
     """
     if occupied_tiles is None:
         occupied_tiles = set()
@@ -332,14 +330,20 @@ class Bullet:
 class Gun(Weapon):
     TYPES = {
         "Pistol":    dict(damage=20, speed=9,  fire_rate=400, spread=0,
-                          bps=1, color=C_BULLET,    radius=5, barrel=24),
+                          bps=1, color=C_BULLET,    radius=5, barrel=24, mag_size=15, total_ammo=90),
         "Shotgun":   dict(damage=15, speed=7,  fire_rate=800, spread=0.35,
-                          bps=5, color=C_SHOTBULLET, radius=4, barrel=28),
+                          bps=5, color=C_SHOTBULLET, radius=4, barrel=28, mag_size=8, total_ammo=40),
         "Assault Rifle": dict(damage=10, speed=11, fire_rate=120, spread=0.08,
-                          bps=1, color=C_BLUE,      radius=4, barrel=20),
+                          bps=1, color=C_BLUE,      radius=4, barrel=20, mag_size=30, total_ammo=150),
+        "Revolver":  dict(damage=25, speed=8,  fire_rate=600, spread=0.02,
+                          bps=1, color=(255, 200, 100), radius=5, barrel=22, mag_size=6, total_ammo=36),
+        "SMG":       dict(damage=8,  speed=10, fire_rate=80,  spread=0.12,
+                          bps=1, color=(150, 200, 255), radius=4, barrel=18, mag_size=25, total_ammo=200),
+        "Sniper Rifle": dict(damage=40, speed=14, fire_rate=1200, spread=0.01,
+                          bps=1, color=(180, 100, 50), radius=6, barrel=32, mag_size=5, total_ammo=25),
     }
 
-    def __init__(self, gun_type="Pistol"):
+    def __init__(self, gun_type="Pistol", from_chest=False):
         cfg = self.TYPES[gun_type]
         super().__init__(gun_type, cfg["damage"])
         self.gun_type   = gun_type
@@ -352,6 +356,15 @@ class Gun(Weapon):
         self.barrel     = cfg["barrel"]
         self._last_shot = 0
         self.angle      = 0.0
+        
+        # Ammo system
+        self.mag_size   = cfg["mag_size"]
+        self.total_ammo = cfg["total_ammo"]
+        self.ammo_current = cfg["mag_size"]  # Start with full magazine
+        self.ammo_reserve = cfg["total_ammo"] - cfg["mag_size"]  # Remaining ammo in reserve
+        
+        # Track if from chest (non-droppable)
+        self.from_chest = from_chest
 
     def weapon_color(self):
         return self.color
@@ -366,9 +379,10 @@ class Gun(Weapon):
         self.angle = math.atan2(my - py, mx - px)
 
     def fire(self, player_rect):
-        if self.on_cooldown:
+        if self.on_cooldown or self.ammo_current < self.bps:
             return []
         self._last_shot = pygame.time.get_ticks()
+        self.ammo_current -= self.bps
         cx, cy = player_rect.center
         out = []
         for _ in range(self.bps):
@@ -376,6 +390,15 @@ class Gun(Weapon):
             out.append(Bullet(cx, cy, math.cos(a), math.sin(a),
                               self.speed, self.damage, self.color, self.radius))
         return out
+    
+    def reload(self):
+        """Reload magazine from reserve ammo."""
+        if self.ammo_current == self.mag_size or self.ammo_reserve == 0:
+            return  # Already full or no ammo to reload
+        ammo_needed = self.mag_size - self.ammo_current
+        ammo_to_take = min(ammo_needed, self.ammo_reserve)
+        self.ammo_current += ammo_to_take
+        self.ammo_reserve -= ammo_to_take
 
     def draw(self, surface, player_rect):
         cx, cy = player_rect.center
@@ -395,7 +418,6 @@ class Gun(Weapon):
 #    so coins behave as 2D scatterables rather than platform-fall objects.
 # 4) when speed drops under COIN_STOP_SPEED, coin enters rest state.
 # 5) collect_rect() is used to detect proximity pickup by player.
-# Bug fixed (as requested): removing vertical gravity meant coins no longer fall to the bottom edge.
 
 class Coin:
     RADIUS = 6
@@ -722,8 +744,12 @@ class Inventory:
                     dropped = True
                     break
         if not dropped:
-            # Return item to source
-            self._put_back(self._drag_item)
+            # Cannot drop chest weapons to storage
+            if isinstance(self._drag_item, Gun) and self._drag_item.from_chest:
+                self._put_back(self._drag_item)
+            else:
+                # Return item to source
+                self._put_back(self._drag_item)
             self._drag_item = None
 
     def _put_back(self, item):
@@ -782,7 +808,7 @@ class Inventory:
             slot.draw(surface, self._font_xs, self._font_sm, is_active=is_active)
             # "ACTIVE" tag
             if is_active:
-                at = self._font_xs.render("▶ ACTIVE", True, C_GREEN)
+                at = self._font_xs.render("ACTIVE", True, C_GREEN)
                 surface.blit(at, (slot.rect.right + 8, slot.rect.centery - 6))
 
         # Stats of active weapon
@@ -795,7 +821,11 @@ class Inventory:
                 lines = [f"Type    : {aw.name}",
                          f"Damage  : {aw.damage}",
                          f"Speed   : {aw.speed}",
-                         f"Fire Rate: {aw.fire_rate} ms"]
+                         f"Fire Rate: {aw.fire_rate} ms",
+                         f"Ammo    : {aw.ammo_current}/{aw.mag_size}",
+                         f"Reserve : {aw.ammo_reserve}"]
+                if aw.from_chest:
+                    lines.append("Status  : [CHEST WEAPON]")
             elif isinstance(aw, Sword):
                 lines = [f"Type    : Sword (melee)",
                          f"Damage  : {aw.damage}",
@@ -948,10 +978,12 @@ def build_maze():
 
 class Chest:
     LOOT_TABLE = [
-        lambda: Gun("Shotgun"),
-        lambda: Gun("Assault Rifle"),
-        #lambda: Gun("Pistol"),
-        #lambda: Sword(),
+        lambda: Gun("Shotgun", from_chest=True),
+        lambda: Gun("Assault Rifle", from_chest=True),
+        lambda: Gun("Revolver", from_chest=True),
+        lambda: Gun("SMG", from_chest=True),
+        lambda: Gun("Sniper Rifle", from_chest=True),
+        lambda: Gun("Pistol", from_chest=True),
     ]
 
     def __init__(self, col, row):
@@ -1217,7 +1249,7 @@ class Monster(GameEntity):
 # The function keeps HUD display decoupled from game state update logic.
 # At runtime, coin and health values are read from player object.
 
-def draw_hud(surface, player, chests, font_sm, font_xs):
+def draw_hud(surface, player, chests, inventory, font_sm, font_xs):
     sw, sh = surface.get_size()
     pad    = 10
 
@@ -1234,6 +1266,26 @@ def draw_hud(surface, player, chests, font_sm, font_xs):
     # ── HP label above bar ───────────────────────────────────────────
     hl = font_xs.render("HEALTH", True, C_GREY)
     surface.blit(hl, (bx, pad + 6))
+    
+    # ── Ammo counter — below health bar ──────────────────────────────
+    weapon = inventory.active_weapon
+    if isinstance(weapon, Gun):
+        ammo_y = by + bar_h + 6
+        ammo_color = C_RED if weapon.ammo_current == 0 else (C_YELLOW if weapon.ammo_current <= weapon.mag_size // 3 else C_WHITE)
+        ammo_text = f"MAG  {weapon.ammo_current}/{weapon.mag_size}"
+        ammo_display = font_xs.render(ammo_text, True, ammo_color)
+        surface.blit(ammo_display, (bx + 3, ammo_y))
+        
+        # Reserve ammo info
+        reserve_text = f"Reserve: {weapon.ammo_reserve}"
+        reserve_color = C_RED if weapon.ammo_reserve == 0 else C_GREY
+        reserve_display = font_xs.render(reserve_text, True, reserve_color)
+        surface.blit(reserve_display, (bx + 3, ammo_y + 16))
+        
+        # Out of ammo warning
+        if weapon.ammo_current == 0 and weapon.ammo_reserve == 0:
+            out_msg = font_sm.render("OUT OF AMMO!", True, C_RED)
+            surface.blit(out_msg, (bx + 3, ammo_y + 32))
 
     # ── Money counter — top-left, to the right of health bar ──────
     mx = bx + bar_w + 16
@@ -1259,7 +1311,7 @@ def draw_hud(surface, player, chests, font_sm, font_xs):
 
     # ── Controls strip — top centre ──────────────────────────────────
     ctrl = font_xs.render(
-        "WASD move  |  Click/F attack  |  TAB inventory  |  Q swap weapon  |  E chest",
+        "WASD move  |  Click/F attack  |  TAB inventory  |  Q swap weapon  |  E chest  |  R reload",
         True, C_GREY)
     surface.blit(ctrl, (sw // 2 - ctrl.get_width() // 2, 6))
 
@@ -1324,7 +1376,7 @@ def fresh_inventory():
     inv = Inventory()
     inv.init_fonts()
     inv.equip_slots[0].item = Sword()
-    inv.equip_slots[1].item = Gun("Pistol")
+    inv.equip_slots[1].item = Gun("Pistol", from_chest=False)
     return inv
 
 
@@ -1403,9 +1455,26 @@ def run():
                     for chest in chests:
                         loot, burst = chest.try_open(player.rect)
                         if loot:
-                            inventory.add(loot)
+                            # If it's a gun from chest and we have the same type, reload instead
+                            if isinstance(loot, Gun) and loot.from_chest:
+                                active_weapon = inventory.active_weapon
+                                if isinstance(active_weapon, Gun) and active_weapon.gun_type == loot.gun_type:
+                                    # Reload ammo from the chest weapon
+                                    active_weapon.ammo_reserve += loot.ammo_reserve + loot.ammo_current
+                                    active_weapon.reload()
+                                else:
+                                    # Add to inventory if different type
+                                    inventory.add(loot)
+                            else:
+                                inventory.add(loot)
                             coins.extend(burst)
                             break
+                
+                elif k == pygame.K_r and not inventory.open and game_active:
+                    # Reload current weapon if it's a gun
+                    weapon = inventory.active_weapon
+                    if isinstance(weapon, Gun):
+                        weapon.reload()
 
                 elif k == pygame.K_f and game_active and not inventory.open:
                     w = inventory.active_weapon
@@ -1548,12 +1617,20 @@ def run():
             if m.health > 0:   m.draw(screen)
 
         player.draw(screen)
+        
+        # Draw ammo counter under player if wielding gun
+        weapon = inventory.active_weapon
+        if isinstance(weapon, Gun):
+            ammo_str = f"mag {weapon.ammo_current}/{weapon.mag_size}"
+            ammo_label = font_xs.render(ammo_str, True, C_YELLOW if weapon.ammo_current > 0 else C_RED)
+            screen.blit(ammo_label, (player.rect.centerx - ammo_label.get_width() // 2, 
+                                     player.rect.bottom + 4))
 
         if isinstance(weapon, Sword):    weapon.draw(screen, player.rect)
         elif isinstance(weapon, Gun):    weapon.draw(screen, player.rect)
 
         inventory.draw_hotbar(screen, font_sm)
-        draw_hud(screen, player, chests, font_sm, font_xs)
+        draw_hud(screen, player, chests, inventory, font_sm, font_xs)
 
         pygame.display.flip()
 

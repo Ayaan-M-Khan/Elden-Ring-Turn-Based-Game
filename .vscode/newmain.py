@@ -42,6 +42,7 @@ C_WALL        = (52,  52,  78)
 C_WALL_EDGE   = (72,  72, 105)
 C_PLAYER      = (80,  200, 120)
 C_MONSTER     = (200,  70,  70)
+C_MONSTER_AGGRO = (140,  30,  30)
 C_BULLET      = (255, 240,  80)
 C_SHOTBULLET  = (255, 160,  40)
 C_SWORD       = (180, 220, 255)
@@ -763,7 +764,7 @@ class Inventory:
         surface.blit(ov, (0, 0))
 
         # Title bar
-        title = self._font_lg.render("── CHARACTER  (TAB to close) ──", True, C_WHITE)
+        title = self._font_lg.render("CHARACTER  (TAB to close)", True, C_WHITE)
         surface.blit(title, (sw // 2 - title.get_width() // 2, 14))
 
         # ── LEFT panel ──────────────────────────────
@@ -1046,19 +1047,20 @@ class Player(GameEntity):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  MONSTER  — BFS pathfinding with smooth steering
+#  MONSTER  — BFS pathfinding with aggro system and NPC wandering
 # ═══════════════════════════════════════════════════════════════════
-# Monster AI uses tile-based BFS pathing for meaningful movement.
-# - each monster recalculates path every PATH_REFRESH_MS milliseconds.
-# - update_path() computes path to player tile with bfs_path(grid, start, goal).
-# - move_towards_player() selects next waypoint, steers toward it using normalized vector.
-# - axis-separated collisions vs walls prevent wall-stuck behavior.
-# - on death (health <= 0), monster drops coins via drop_coins() to be collected.
-# - draw() renders monster and monster health bar.
-# This creates enemies that navigate labyrinth style and are responsive.
+# Monster AI now includes an aggro system:
+# - monsters have an AGGRO_RANGE for detecting the player
+# - when player is in range, monster becomes aggro'd and chases with BFS pathfinding
+# - when not aggro'd, monsters wander randomly like NPCs
+# - axis-separated collisions prevent wall-stuck behavior
+# - monsters change to a darker red color when aggro'd
+# - on death, monster drops coins via drop_coins() to be collected
+# - draw() renders monster with color based on aggro state
 
 class Monster(GameEntity):
     PATH_REFRESH_MS = 600   # recalculate path every N ms
+    AGGRO_RANGE = 250       # pixels; detect player within this range
 
     def __init__(self, name, health, max_health, col, row):
         x, y = tile_center(col, row)
@@ -1069,9 +1071,22 @@ class Monster(GameEntity):
         self._coin_value     = random.randint(1, 3)
         # Slight wobble per-monster so they don't stack perfectly
         self._speed_jitter   = random.uniform(0.85, 1.15)
+        # Aggro system
+        self.is_aggro        = False
+        self._wander_dir     = [0.0, 0.0]  # current wander direction
+        self._wander_timer   = random.randint(60, 180)  # frames until new wander direction
+        self._stuck_counter  = 0  # counter for stuck detection
 
     def _my_tile(self):
         return world_to_tile(self.rect.centerx, self.rect.centery)
+
+    def _check_aggro(self, player_rect):
+        """Check if player is in aggro range."""
+        dist = math.hypot(
+            player_rect.centerx - self.rect.centerx,
+            player_rect.centery - self.rect.centery
+        )
+        self.is_aggro = dist <= self.AGGRO_RANGE
 
     def update_path(self, player_rect, grid):
         """Refresh BFS path toward the player tile."""
@@ -1082,49 +1097,96 @@ class Monster(GameEntity):
         goal = world_to_tile(player_rect.centerx, player_rect.centery)
         self._path = bfs_path(grid, self._my_tile(), goal)
 
+    def _pick_wander_direction(self):
+        """Choose a new random direction for wandering."""
+        self._wander_dir = [random.uniform(-1, 1), random.uniform(-1, 1)]
+        n = math.hypot(self._wander_dir[0], self._wander_dir[1])
+        if n > 0:
+            self._wander_dir[0] /= n
+            self._wander_dir[1] /= n
+        self._wander_timer = random.randint(60, 180)
+
     def move_towards_player(self, player_rect, walls, grid):
         """
-        Follow the BFS path.  Steer smoothly toward the next waypoint.
-        Pop waypoints as they are reached.  Fall back to direct chase
-        if no path (player in same tile).
+        If aggro'd: Follow BFS path to player and attack.
+        If not aggro'd: Wander randomly like an NPC.
+        Prevents sticking to walls with safe axis-separated collisions.
         """
-        self.update_path(player_rect, grid)
+        self._check_aggro(player_rect)
 
-        # Determine target point
-        if self._path:
-            # Next waypoint is the centre of the next tile in path
-            nc, nr = self._path[0]
-            tx, ty = tile_center(nc, nr)
-            # Pop waypoint when close enough
-            if math.hypot(tx - self.rect.centerx, ty - self.rect.centery) < 6:
-                self._path.pop(0)
+        move_x = 0.0
+        move_y = 0.0
+
+        if self.is_aggro:
+            # Aggro mode: chase the player using BFS pathfinding
+            self.update_path(player_rect, grid)
+
+            # Determine target point
+            if self._path:
+                # Next waypoint is the centre of the next tile in path
+                nc, nr = self._path[0]
+                tx, ty = tile_center(nc, nr)
+                # Pop waypoint when close enough
+                if math.hypot(tx - self.rect.centerx, ty - self.rect.centery) < 6:
+                    self._path.pop(0)
+            else:
+                # Same tile as player — direct chase
+                tx, ty = player_rect.centerx, player_rect.centery
+
+            dx, dy   = tx - self.rect.centerx, ty - self.rect.centery
+            nx, ny   = norm(dx, dy)
+            spd      = self.speed * self._speed_jitter
+            move_x   = nx * spd
+            move_y   = ny * spd
         else:
-            # Same tile as player — direct chase
-            tx, ty = player_rect.centerx, player_rect.centery
+            # Not aggro'd: wander randomly like an NPC
+            self._wander_timer -= 1
+            if self._wander_timer <= 0:
+                self._pick_wander_direction()
 
-        dx, dy   = tx - self.rect.centerx, ty - self.rect.centery
-        nx, ny   = norm(dx, dy)
-        spd      = self.speed * self._speed_jitter
-        move_x   = nx * spd
-        move_y   = ny * spd
+            spd = self.speed * 0.6  # slow wander speed
+            move_x = self._wander_dir[0] * spd
+            move_y = self._wander_dir[1] * spd
 
-        # Axis-separated collision (prevents sticking to walls)
+        # ─── SAFE AXIS-SEPARATED COLLISION ──────────────────────────
+        # Move in X and resolve collisions
         self.rect.x += int(move_x)
         for w in walls:
             if self.rect.colliderect(w.rect):
-                if move_x > 0: self.rect.right  = w.rect.left
-                else:           self.rect.left   = w.rect.right
+                if move_x > 0: 
+                    self.rect.right  = w.rect.left
+                else:           
+                    self.rect.left   = w.rect.right
 
+        # Move in Y and resolve collisions
         self.rect.y += int(move_y)
         for w in walls:
             if self.rect.colliderect(w.rect):
-                if move_y > 0: self.rect.bottom = w.rect.top
-                else:           self.rect.top    = w.rect.bottom
+                if move_y > 0: 
+                    self.rect.bottom = w.rect.top
+                else:           
+                    self.rect.top    = w.rect.bottom
         
-        # --- Anti-stuck fix ---
-        if abs(move_x) < 0.1 and abs(move_y) < 0.1:
-            self.rect.x += random.choice([-1, 1]) * 2
-            self.rect.y += random.choice([-1, 1]) * 2
+        # Final safety check: ensure we're not left inside any wall
+        # If we are, nudge out gently
+        for w in walls:
+            if self.rect.colliderect(w.rect):
+                # Push out in the direction with least overlap
+                overlap_left   = self.rect.right - w.rect.left
+                overlap_right  = w.rect.right - self.rect.left
+                overlap_top    = self.rect.bottom - w.rect.top
+                overlap_bottom = w.rect.bottom - self.rect.top
+                
+                min_overlap = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
+                
+                if min_overlap == overlap_left:
+                    self.rect.right = w.rect.left - 1
+                elif min_overlap == overlap_right:
+                    self.rect.left = w.rect.right + 1
+                elif min_overlap == overlap_top:
+                    self.rect.bottom = w.rect.top - 1
+                else:
+                    self.rect.top = w.rect.bottom + 1
 
     def drop_coins(self):
         """Return coins scattered from the monster's death position."""
@@ -1132,7 +1194,9 @@ class Monster(GameEntity):
                           count=self._coin_value + 1, value=1)
 
     def draw(self, surface):
-        pygame.draw.rect(surface, C_MONSTER, self.rect, border_radius=5)
+        # Change color based on aggro state
+        color = C_MONSTER_AGGRO if self.is_aggro else C_MONSTER
+        pygame.draw.rect(surface, color, self.rect, border_radius=5)
         ex = self.rect.x + 10;  ey = self.rect.y + 12
         pygame.draw.circle(surface, C_YELLOW,   (ex,      ey), 4)
         pygame.draw.circle(surface, C_YELLOW,   (ex + 20, ey), 4)

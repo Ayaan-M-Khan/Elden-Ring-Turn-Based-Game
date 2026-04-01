@@ -7,6 +7,14 @@ from collections import deque
 # ═══════════════════════════════════════════════════════════════════
 #  CONSTANTS
 # ═══════════════════════════════════════════════════════════════════
+# This section defines global game constants used throughout systems.
+# - SCREEN_W, SCREEN_H: window size.
+# - TILE: grid cell size; the map is tile-based.
+# - FPS: game update rate.
+# - DAMAGE_COOLDOWN: invulnerability time after player hit.
+# - CHEST_INTERACT_DIST: how close the player must be to open a chest.
+# - COIN_* constants: control coin physics behavior.  (COIN_GRAVITY is kept for introspection,
+#   but coin behavior is now friction-only by default to prevent vertical dropping in top-down view.)
 SCREEN_W, SCREEN_H  = 950, 680
 TILE                = 50            # one map tile in pixels
 FPS                 = 60
@@ -19,8 +27,8 @@ SWORD_ARC           = math.pi * 0.9
 CHEST_INTERACT_DIST = 65            # px radius to open a chest
 COIN_COLLECT_DIST   = 22            # px radius to auto-collect coin
 COIN_FRICTION       = 0.82          # velocity damping each frame
-COIN_GRAVITY        = 0.18          # downward pull each frame
-COIN_BOUNCE         = 0.38          # velocity retained on floor bounce
+COIN_GRAVITY        = 0.0           # top-down mode: no vertical gravity drop (fixed) ; set >0 for platform-style behavior
+COIN_BOUNCE         = 0.38          # velocity retained on wall bounce
 COIN_STOP_SPEED     = 0.4           # below this speed the coin rests
 
 # Grid dimensions (in tiles)
@@ -184,6 +192,17 @@ class GameEntity:
 # ═══════════════════════════════════════════════════════════════════
 #  WEAPONS
 # ═══════════════════════════════════════════════════════════════════
+# This section defines weapon classes and their logic.
+#  - Weapon: base class for any equipable offensive item.
+#  - Sword: melee weapon with swing arc and per-swing hit tracking.
+#  - Gun: ranged weapon with bullet instantiation, spread, and cooldown.
+#  - Bullet: moving projectile with straight flight and wall clipping.
+# Implementation intent:
+#   1) attach each weapon as player.active_weapon.
+#   2) update() each frame for aiming/cooldown.
+#   3) fire() returns projectiles to be simulated in the main loop.
+#   4) draw() renders weapon UI and in-world effects.
+# Changes: no logic changes here, just annotated for understanding.
 class Weapon:
     def __init__(self, name, damage):
         self.name   = name
@@ -368,6 +387,15 @@ class Gun(Weapon):
 # ═══════════════════════════════════════════════════════════════════
 #  COIN  — physics drop from monster death / chest burst
 # ═══════════════════════════════════════════════════════════════════
+# Full behavior:
+# 1) coin is spawned by coin_burst() with a random 2D velocity vector.
+# 2) update() applies damping (COIN_FRICTION), moves in X/Y, and collides with walls.
+# 3) no constant downwards gravity is applied for top-down context,
+#    so coins behave as 2D scatterables rather than platform-fall objects.
+# 4) when speed drops under COIN_STOP_SPEED, coin enters rest state.
+# 5) collect_rect() is used to detect proximity pickup by player.
+# Bug fixed (as requested): removing vertical gravity meant coins no longer fall to the bottom edge.
+
 class Coin:
     RADIUS = 6
 
@@ -381,12 +409,11 @@ class Coin:
         self._rest_timer = 0    # frames coin has been nearly stopped
 
     def update(self, walls):
-        # Apply gravity and friction
-        self.vy += COIN_GRAVITY
+        # Apply friction to reduce velocity over time (2D top-down scatter).
         self.vx *= COIN_FRICTION
         self.vy *= COIN_FRICTION
 
-        # Move horizontally and handle wall collisions
+        # Horizontal movement with wall collisions
         self.x += self.vx
         coin_rect = pygame.Rect(self.x - self.RADIUS,
                                 self.y - self.RADIUS,
@@ -403,7 +430,7 @@ class Coin:
                     self.vx = 0
                 coin_rect.x = self.x - self.RADIUS
 
-        # Move vertically and handle wall collisions
+        # Vertical movement with wall collisions
         self.y += self.vy
         coin_rect.y = self.y - self.RADIUS
         for w in walls:
@@ -417,7 +444,7 @@ class Coin:
                     self.vy = 0
                 coin_rect.y = self.y - self.RADIUS
 
-        # Screen bounds (ground, ceiling, walls)
+        # Boundaries to prevent coin escaping screen.
         if self.x - self.RADIUS < 0:
             self.x = self.RADIUS
             self.vx = -self.vx * COIN_BOUNCE
@@ -431,8 +458,6 @@ class Coin:
         elif self.y + self.RADIUS > SCREEN_H:
             self.y = SCREEN_H - self.RADIUS
             self.vy = -self.vy * COIN_BOUNCE
-            if abs(self.vy) < COIN_STOP_SPEED:
-                self.vy = 0
 
         if abs(self.vx) < COIN_STOP_SPEED and abs(self.vy) < COIN_STOP_SPEED:
             self._rest_timer += 1
@@ -463,7 +488,7 @@ def coin_burst(cx, cy, count=4, value=1):
         speed = random.uniform(1.5, 4.5)
         coins.append(Coin(cx, cy,
                           vx=math.cos(angle) * speed,
-                          vy=math.sin(angle) * speed - 2.5,   # slight upward bias
+                          vy=math.sin(angle) * speed,   # 2D spread in top-down plane
                           value=value))
     return coins
 
@@ -471,6 +496,14 @@ def coin_burst(cx, cy, count=4, value=1):
 # ═══════════════════════════════════════════════════════════════════
 #  INVENTORY SLOT  — holds one Weapon or None
 # ═══════════════════════════════════════════════════════════════════
+# This section defines InventorySlot, a minimal UI container for a single item.
+# 1) Each slot is fixed-size (SIZE x SIZE), storing either None or a weapon object.
+# 2) 'contains(pos)' checks if mouse is inside the slot (used for drag/drop logic).
+# 3) draw() renders the slot frame, active/hover state, and item icon/text.
+# 4) This is low-level: InventorySlot does NOT manage movement itself; Inventory does.
+#    InventorySlot is intentionally simple, while Inventory handles selection, swapping,
+#    pick-up/dropback semantics, and full inventory layout.
+
 class InventorySlot:
     """A single UI slot that can hold one item (weapon or None)."""
     SIZE = 64   # square side length in pixels
@@ -515,6 +548,25 @@ class InventorySlot:
 # ═══════════════════════════════════════════════════════════════════
 #  INVENTORY  — 2 equip slots (left) + 5×4 storage grid (right)
 # ═══════════════════════════════════════════════════════════════════
+# Inventory manages both equipment and storage:
+# - equip_slots: 2 quick-access weapons; one active at a time (slot 0 or slot 1).
+# - storage_slots: 5×4 = 20 long-term slots.
+# - toggle() opens/closes the inventory (pausing gameplay in run loop).
+# - _layout() computes exact screen positions on open and caches them for efficiency.
+# - handle_mousedown / handle_mouseup / handle_mousemotion implement drag-and-drop:
+#   * pickup item from slot
+#   * store drag source kind/index
+#   * drop into target or return to original slot
+#   * swap if slot occupied
+# - add() inserts a weapon into first free equip or storage slot,
+#   making loot pickup immediate and automatic.
+# - active_weapon is a property used by run() to resolve current weapon behaviour.
+# - draw() renders darkened overlay, panels, equipped items and hover states.
+# - draw_hotbar() renders bottom-center in-game quick access indicators.
+# Additional internal fields:
+#   _drag_item/_drag_src/_drag_pos: for mouse drag logic.
+#   _layout_done: avoid recalculating layout every frame when inventory is open.
+
 STORAGE_COLS = 5
 STORAGE_ROWS = 4
 STORAGE_SIZE = STORAGE_COLS * STORAGE_ROWS   # 20 slots
@@ -826,6 +878,11 @@ def _draw_panel(surface, x, y, w, h):
 # ═══════════════════════════════════════════════════════════════════
 #  WALL
 # ═══════════════════════════════════════════════════════════════════
+# Wall objects are static obstacles in the maze.
+# - each wall is one tile in size, placed via tile_rect(col,row).
+# - wall collision is used by player, monster, bullet, and coin update loops.
+# - walls are built at maze creation time by build_maze() and converted to walkable grid.
+
 class Wall:
     def __init__(self, col, row):
         self.col  = col
@@ -881,6 +938,13 @@ def build_maze():
 # ═══════════════════════════════════════════════════════════════════
 #  CHEST
 # ═══════════════════════════════════════════════════════════════════
+# Chest objects are static tiles that can be opened by player proximity.
+# - each chest has a random loot weapon and opened state flag.
+# - try_open(player_rect) checks CHEST_INTERACT_DIST and mutates opened state.
+# - when opened, returns (loot weapon, list of coins from coin_burst())
+# - draw() renders closed/open chest graphics and "empty" text when opened.
+# This is where item spawning and coin drops connect to player intent.
+
 class Chest:
     LOOT_TABLE = [
         lambda: Gun("Shotgun"),
@@ -929,6 +993,13 @@ class Chest:
 # ═══════════════════════════════════════════════════════════════════
 #  PLAYER
 # ═══════════════════════════════════════════════════════════════════
+# Player entity represents the user-controlled hero.
+# - inherits GameEntity for movement, health, and base rect.
+# - manages invincibility frames and damage cooldown.
+# - move_with_walls applies axis-separated collision to slide along walls.
+# - draw() renders player block and forward health bar on top.
+# - money field stores coins collected; updated in main loop via coin collisions.
+
 class Player(GameEntity):
     def __init__(self, col, row):
         x, y = tile_center(col, row)
@@ -977,6 +1048,15 @@ class Player(GameEntity):
 # ═══════════════════════════════════════════════════════════════════
 #  MONSTER  — BFS pathfinding with smooth steering
 # ═══════════════════════════════════════════════════════════════════
+# Monster AI uses tile-based BFS pathing for meaningful movement.
+# - each monster recalculates path every PATH_REFRESH_MS milliseconds.
+# - update_path() computes path to player tile with bfs_path(grid, start, goal).
+# - move_towards_player() selects next waypoint, steers toward it using normalized vector.
+# - axis-separated collisions vs walls prevent wall-stuck behavior.
+# - on death (health <= 0), monster drops coins via drop_coins() to be collected.
+# - draw() renders monster and monster health bar.
+# This creates enemies that navigate labyrinth style and are responsive.
+
 class Monster(GameEntity):
     PATH_REFRESH_MS = 600   # recalculate path every N ms
 
@@ -1064,6 +1144,15 @@ class Monster(GameEntity):
 # ═══════════════════════════════════════════════════════════════════
 #  HUD
 # ═══════════════════════════════════════════════════════════════════
+# This section renders the on-screen HUD overlay during active game play.
+# draw_hud() is called each frame, draws:
+#  - health bar and label (top-left)
+#  - coin indicator/total (top-left, right of health)
+#  - chest interaction prompt when near an unopened chest
+#  - control hints (top-center)
+# The function keeps HUD display decoupled from game state update logic.
+# At runtime, coin and health values are read from player object.
+
 def draw_hud(surface, player, chests, font_sm, font_xs):
     sw, sh = surface.get_size()
     pad    = 10
@@ -1126,6 +1215,16 @@ def draw_end_screen(surface, won, font_lg, font_sm):
 # ═══════════════════════════════════════════════════════════════════
 #  LEVEL FACTORY
 # ═══════════════════════════════════════════════════════════════════
+# make_level() initializes a fresh game stage with:
+#   * player at fixed start tile (1,1)
+#   * monsters spawned at least 5 tiles away from the player
+#   * chests spawned at least 3 tiles away while avoiding overlaps
+# - uses spawn_tile_away_from() for valid walkable placement.
+# - returns (player, monsters, chests) for run loop state.
+
+# Helper fresh_inventory() seeds default weapons (Sword + Pistol).
+
+
 def make_level(grid):
     """
     Spawn all entities at tile-aligned positions.
@@ -1168,6 +1267,21 @@ def fresh_inventory():
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN LOOP
 # ═══════════════════════════════════════════════════════════════════
+# run() is the backbone of the game: one frame per iteration, all systems integrated.
+# Sequence:
+# 1) event processing (keyboard/mouse)
+# 2) inventory state check (pauses the game world)
+# 3) player movement and wall collision
+# 4) active weapon updates (sword swing or gun aim)
+# 5) bullets updates and collision handling
+# 6) monster pathfinding + movement + combat checks
+# 7) player damage and coin collection logic
+# 8) win/lose conditions
+# 9) render world in correct draw order (floor->walls->entities->HUD)
+#
+# This function keeps all global game states (player, enemies, bullets, coins, chests, inventory)
+# and runs them together until quit.
+
 def run():
     pygame.init()
     screen   = pygame.display.set_mode((SCREEN_W, SCREEN_H))

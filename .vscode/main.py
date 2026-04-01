@@ -404,7 +404,43 @@ class Gun(Weapon):
         cx, cy = player_rect.center
         ex = cx + math.cos(self.angle) * self.barrel
         ey = cy + math.sin(self.angle) * self.barrel
-        pygame.draw.line(surface, C_GREY, (int(cx), int(cy)), (int(ex), int(ey)), 6)
+
+        # Base gun barrel line
+        width = 6
+        if self.gun_type == "Shotgun":
+            width = 10
+        elif self.gun_type == "Sniper Rifle":
+            width = 4
+        elif self.gun_type == "SMG":
+            width = 5
+        elif self.gun_type == "Revolver":
+            width = 7
+
+        pygame.draw.line(surface, C_GREY, (int(cx), int(cy)), (int(ex), int(ey)), width)
+
+        # Weapon-specific muzzle or detail markers
+        if self.gun_type == "Pistol":
+            pygame.draw.rect(surface, self.color,
+                             (int(ex), int(ey) - 3, 10, 6))
+        elif self.gun_type == "Shotgun":
+            for offset in (-3, 0, 3):
+                sx = ex + math.cos(self.angle + offset * 0.09) * 12
+                sy = ey + math.sin(self.angle + offset * 0.09) * 12
+                pygame.draw.circle(surface, C_SHOTBULLET, (int(sx), int(sy)), 3)
+        elif self.gun_type == "Assault Rifle":
+            for i in range(3):
+                bx = cx + math.cos(self.angle) * (self.barrel - 4 - i * 6)
+                by = cy + math.sin(self.angle) * (self.barrel - 4 - i * 6)
+                pygame.draw.circle(surface, (220, 220, 220), (int(bx), int(by)), 2)
+        elif self.gun_type == "SMG":
+            pygame.draw.circle(surface, C_BLUE, (int(cx), int(cy)), 4, 1)
+        elif self.gun_type == "Revolver":
+            pygame.draw.circle(surface, (180, 180, 180), (int(cx - 6), int(cy - 6)), 6, 2)
+        elif self.gun_type == "Sniper Rifle":
+            scope_x = cx + math.cos(self.angle) * (self.barrel * 0.5)
+            scope_y = cy + math.sin(self.angle) * (self.barrel * 0.5)
+            pygame.draw.circle(surface, (200, 200, 120), (int(scope_x), int(scope_y)), 4, 1)
+
         pygame.draw.circle(surface, C_WHITE, (int(ex), int(ey)), 4)
 
 
@@ -659,18 +695,40 @@ class Inventory:
             slot.rect.h = ss
 
     # ── adding items ─────────────────────────────────────────────────
+    def has_weapon(self, weapon):
+        """Check if equivalent weapon already exists in inventory."""
+        if weapon is None:
+            return False
+        for slot in self.equip_slots + self.storage_slots:
+            if slot.item is None:
+                continue
+            # For guns, match by type; for swords, by class.
+            if isinstance(weapon, Gun) and isinstance(slot.item, Gun):
+                if slot.item.gun_type == weapon.gun_type:
+                    return True
+            elif type(weapon) == type(slot.item):
+                return True
+        return False
+
     def add(self, weapon):
         """Put weapon in first empty storage slot (or equip slot if both free)."""
+        if weapon is None:
+            return False
+        # prevent duplicates in equip/storage
+        if self.has_weapon(weapon):
+            return False
+
         # Fill equip slots first if empty
         for slot in self.equip_slots:
             if slot.item is None:
                 slot.item = weapon
-                return
+                return True
         # Else storage
         for slot in self.storage_slots:
             if slot.item is None:
                 slot.item = weapon
-                return
+                return True
+        return False
 
     # ── active weapon ────────────────────────────────────────────────
     @property
@@ -1013,8 +1071,13 @@ class Chest:
             pygame.draw.line(surface, (130, 90, 25),
                              (self.rect.left + 4,  self.rect.top + 8),
                              (self.rect.right - 4, self.rect.top + 8), 3)
-            e = font.render("empty", True, (90, 65, 25))
-            surface.blit(e, (self.rect.x + 5, self.rect.y + 20))
+            # center 'empty' label, smaller and visually consistent
+            e_text = "empty"
+            small_font = pygame.font.SysFont(None, 16)
+            e = small_font.render(e_text, True, (90, 65, 25))
+            ex = self.rect.centerx - e.get_width() // 2
+            ey = self.rect.centery - e.get_height() // 2
+            surface.blit(e, (ex, ey))
         else:
             pygame.draw.rect(surface, C_CHEST, self.rect, border_radius=6)
             pygame.draw.rect(surface, (255, 210, 80), self.rect, 2, border_radius=6)
@@ -1455,18 +1518,28 @@ def run():
                     for chest in chests:
                         loot, burst = chest.try_open(player.rect)
                         if loot:
-                            # If it's a gun from chest and we have the same type, reload instead
                             if isinstance(loot, Gun) and loot.from_chest:
+                                # Merge ammo into existing same-type gun
+                                merged = False
                                 active_weapon = inventory.active_weapon
                                 if isinstance(active_weapon, Gun) and active_weapon.gun_type == loot.gun_type:
-                                    # Reload ammo from the chest weapon
                                     active_weapon.ammo_reserve += loot.ammo_reserve + loot.ammo_current
                                     active_weapon.reload()
+                                    merged = True
                                 else:
-                                    # Add to inventory if different type
+                                    for slot in inventory.equip_slots + inventory.storage_slots:
+                                        if isinstance(slot.item, Gun) and slot.item.gun_type == loot.gun_type:
+                                            slot.item.ammo_reserve += loot.ammo_reserve + loot.ammo_current
+                                            slot.item.reload()
+                                            merged = True
+                                            break
+
+                                if not merged:
                                     inventory.add(loot)
+
                             else:
                                 inventory.add(loot)
+
                             coins.extend(burst)
                             break
                 

@@ -339,7 +339,7 @@ class Gun(Weapon):
                           bps=1, color=(255, 200, 100), radius=5, barrel=22, mag_size=6, total_ammo=36),
         "SMG":       dict(damage=8,  speed=10, fire_rate=80,  spread=0.12,
                           bps=1, color=(150, 200, 255), radius=4, barrel=18, mag_size=25, total_ammo=200),
-        "Sniper Rifle": dict(damage=40, speed=14, fire_rate=1200, spread=0.01,
+        "Sniper": dict(damage=40, speed=14, fire_rate=1200, spread=0.01,
                           bps=1, color=(180, 100, 50), radius=6, barrel=32, mag_size=5, total_ammo=25),
     }
 
@@ -982,7 +982,7 @@ class Chest:
         lambda: Gun("Assault Rifle", from_chest=True),
         lambda: Gun("Revolver", from_chest=True),
         lambda: Gun("SMG", from_chest=True),
-        lambda: Gun("Sniper Rifle", from_chest=True),
+        lambda: Gun("Sniper", from_chest=True),
         lambda: Gun("Pistol", from_chest=True),
     ]
 

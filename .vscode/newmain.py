@@ -335,7 +335,7 @@ class Gun(Weapon):
                           bps=1, color=C_BULLET,    radius=5, barrel=24),
         "Shotgun":   dict(damage=15, speed=7,  fire_rate=800, spread=0.35,
                           bps=5, color=C_SHOTBULLET, radius=4, barrel=28),
-        "RapidFire": dict(damage=10, speed=11, fire_rate=120, spread=0.08,
+        "Assault Rifle": dict(damage=10, speed=11, fire_rate=120, spread=0.08,
                           bps=1, color=C_BLUE,      radius=4, barrel=20),
     }
 
@@ -789,7 +789,7 @@ class Inventory:
         aw = self.active_weapon
         if aw:
             sy = self.equip_slots[-1].rect.bottom + 20
-            stat_hdr = self._font_xs.render("── Active Weapon Stats ──", True, C_GREY)
+            stat_hdr = self._font_xs.render("   Active Weapon Stats", True, C_GREY)
             surface.blit(stat_hdr, (lx + 20, sy))
             if isinstance(aw, Gun):
                 lines = [f"Type    : {aw.name}",
@@ -949,9 +949,9 @@ def build_maze():
 class Chest:
     LOOT_TABLE = [
         lambda: Gun("Shotgun"),
-        lambda: Gun("RapidFire"),
-        lambda: Gun("Pistol"),
-        lambda: Sword(),
+        lambda: Gun("Assault Rifle"),
+        #lambda: Gun("Pistol"),
+        #lambda: Sword(),
     ]
 
     def __init__(self, col, row):
@@ -1004,7 +1004,7 @@ class Chest:
 class Player(GameEntity):
     def __init__(self, col, row):
         x, y = tile_center(col, row)
-        super().__init__("Hero", 100, 100, x - 20, y - 20, w=40, h=40)
+        super().__init__("Hero", 100, 100, x - 16, y - 16, w=40, h=40)
         self.speed          = 4
         self._last_hit_time = -DAMAGE_COOLDOWN
         self.invincible     = False
@@ -1064,7 +1064,7 @@ class Monster(GameEntity):
 
     def __init__(self, name, health, max_health, col, row):
         x, y = tile_center(col, row)
-        super().__init__(name, health, max_health, x - 22, y - 22, w=44, h=44)
+        super().__init__(name, health, max_health, x - 18, y - 18, w=36, h=36)
         self.speed           = 2.0
         self._path: list     = []      # list of (col, row) tiles to walk
         self._path_timer     = 0       # ms timestamp of last path update
@@ -1269,7 +1269,7 @@ def draw_end_screen(surface, won, font_lg, font_sm):
     ov = pygame.Surface((sw, sh), pygame.SRCALPHA)
     ov.fill((0, 0, 0, 165))
     surface.blit(ov, (0, 0))
-    t = font_lg.render("★  YOU WIN!  ★"  if won else "✖  GAME OVER", True,
+    t = font_lg.render("YOU WIN!"  if won else "GAME OVER", True,
                         C_GREEN           if won else C_RED)
     s = font_sm.render("R to restart  |  ESC quit", True, C_WHITE)
     surface.blit(t, (sw // 2 - t.get_width() // 2, sh // 2 - 50))

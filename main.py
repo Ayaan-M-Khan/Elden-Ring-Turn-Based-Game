@@ -40,7 +40,6 @@ STORY LOOP:
 import os
 import random
 import time
-import json
 
 # Function delay(delay_time)
 #   sleep the program for delay_time seconds
@@ -52,130 +51,6 @@ def delay(delay_time):
 def clear():
     # 'nt' means Windows, others (Mac/Linux) use 'clear'
     os.system('cls' if os.name == 'nt' else 'clear')
-
-
-# ── Save / Load System ─────────────────────────────────────────────────────────
-SAVE_FILE = "save.txt"
-
-# Function save_game(area_index)
-#   Serialises all critical player state into a JSON-formatted save.txt file.
-#   Called after every boss defeat and after every shop visit.
-#   PRE:  hero, weapon_stash, equipped_armor, heal_stash are initialised globals;
-#         area_index is a non-negative int representing current story progress.
-#   POST: save.txt is written (or overwritten) with the player's current state.
-def save_game(area_index):
-    data = {
-        # ── Player core stats ──────────────────────────────────────────────────
-        "name":       hero.name,
-        "health":     hero.health,
-        "max_health": hero.max_health,
-        "runes":      hero.runes,
-        "defense":    hero.defense,
-        "speed":      hero.speed,
-        "accuracy":   hero.accuracy,
-        "crit_chance":  hero.crit_chance,
-        "crit_damage":  hero.crit_damage,
-        "heal_cooldown_remaining":   hero.heal_cooldown_remaining,
-        "special_attack_cooldown":   hero.special_attack_cooldown,
-
-        # ── Progress ───────────────────────────────────────────────────────────
-        "area_index": area_index,
-
-        # ── Inventory: all weapons in stash ───────────────────────────────────
-        "weapons": [
-            {
-                "name":                  w.name,
-                "attack_power":          w.attack_power,
-                "speed":                 w.speed,
-                "accuracy":              w.accuracy,
-                "crit_chance":           w.crit_chance,
-                "crit_damage":           w.crit_damage,
-                "special_attack_name":   w.special_attack_name,
-                "special_attack_damage": w.special_attack_damage,
-                "cost":                  w.cost,
-            }
-            for w in weapon_stash
-        ],
-
-        # ── Equipped armor ────────────────────────────────────────────────────
-        "armor": {
-            "name":        equipped_armor.name,
-            "defense":     equipped_armor.defense,
-            "speed":       equipped_armor.speed,
-            "crit_chance": equipped_armor.crit_chance,
-            "crit_damage": equipped_armor.crit_damage,
-            "cost":        equipped_armor.cost,
-        },
-
-        # ── Flasks ────────────────────────────────────────────────────────────
-        "flask": {
-            "heal_name":     heal_stash[0].heal_name,
-            "heal_amount":   heal_stash[0].heal_amount,
-            "heal_quantity": heal_stash[0].heal_quantity,
-        },
-    }
-
-    with open(SAVE_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-    print("\n[ ⚜  Progress saved at the Site of Grace. ]")
-
-
-# Function load_game()
-#   Reads save.txt and returns a dict of saved data, or None if no save exists.
-#   PRE:  SAVE_FILE path is set.
-#   POST: Returns the parsed save dict on success, or None if file is missing /
-#         unreadable.
-def load_game():
-    if not os.path.exists(SAVE_FILE):
-        return None
-    try:
-        with open(SAVE_FILE, "r") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, KeyError):
-        print("Warning: save file is corrupt and will be ignored.")
-        return None
-
-
-# Function restore_from_save(data)
-#   Rebuilds all global game objects from the dict returned by load_game().
-#   PRE:  data is a valid save dict (keys match those written by save_game).
-#   POST: hero, weapon_stash, equipped_armor, heal_stash are all restored;
-#         returns the saved area_index so story_loop can resume from there.
-def restore_from_save(data):
-    global hero, weapon_stash, equipped_armor, heal_stash
-
-    # ── Rebuild player ─────────────────────────────────────────────────────────
-    hero = player(data["name"], data["health"], data["max_health"], data["runes"])
-    hero.defense                  = data["defense"]
-    hero.speed                    = data["speed"]
-    hero.accuracy                 = data["accuracy"]
-    hero.crit_chance              = data["crit_chance"]
-    hero.crit_damage              = data["crit_damage"]
-    hero.heal_cooldown_remaining  = data["heal_cooldown_remaining"]
-    hero.special_attack_cooldown  = data["special_attack_cooldown"]
-
-    # ── Rebuild weapon stash ───────────────────────────────────────────────────
-    weapon_stash = [
-        Weapon(
-            w["name"], w["attack_power"], w["speed"], w["accuracy"],
-            w["crit_chance"], w["crit_damage"],
-            w["special_attack_name"], w["special_attack_damage"], w["cost"]
-        )
-        for w in data["weapons"]
-    ]
-
-    # ── Rebuild equipped armor ─────────────────────────────────────────────────
-    a = data["armor"]
-    equipped_armor = armor(
-        a["name"], a["defense"], a["speed"], a["crit_chance"], a["crit_damage"], a["cost"]
-    )
-
-    # ── Rebuild flask ──────────────────────────────────────────────────────────
-    fl = data["flask"]
-    heal_stash = [Heal(fl["heal_name"], fl["heal_amount"], fl["heal_quantity"])]
-
-    return data["area_index"]
 
 
 # Class player
@@ -1686,18 +1561,12 @@ def ending_choice():
 #     3. Print boss intro, spawn boss, run battle_loop
 #     4. If ending flag set, call ending_choice() and return
 #     5. Otherwise print rest text, refill flasks, restore health, open shop
-def story_loop(start_index=0):
+def story_loop():
     # PRE:  hero, heal_stash, equipped_armor, AREAS are all initialized globals;
-    #       hero.health > 0 at the start of the call;
-    #       start_index is the index into AREAS to resume from (default 0).
-    # POST: Steps the player through all areas in AREAS in order starting at
-    #       start_index; saves after every boss defeat and shop; ends early if
-    #       hero dies; calls ending_choice() on the final area.
-    for area_index, area in enumerate(AREAS):
-
-        # Skip areas already completed when resuming from a save
-        if area_index < start_index:
-            continue
+    #       hero.health > 0 at the start of the call
+    # POST: Steps the player through all areas in AREAS in order;
+    #       ends early if hero dies; calls ending_choice() on the final area
+    for area in AREAS:
 
         # ----- 1. Area intro -------------------------------------------------
         prompt(f"[ {area['name']} ]\n\n" + area["intro"])
@@ -1737,200 +1606,173 @@ def story_loop(start_index=0):
             heal_stash[0].heal_quantity = 12
             print("\nGrace flows through you. Your flasks are replenished.")
             print(f"HP fully restored. Flasks: {heal_stash[0].heal_quantity}/12")
-            # Save after the final-stretch rest (next area index)
-            save_game(area_index + 1)
             input("\nPress Enter to continue...")
         else:
             prompt(area["rest_text"])
             hero.health = hero.max_health
             input("\nPress Enter to continue...")
             shop()
-            # Save after the shop so purchased gear is persisted
-            save_game(area_index + 1)
 
 
-# ── Character creation ─────────────────────────────────────────────────────────
+# ── Character creation ─────────────────────────────────────────
 # Character Creation
-#   Check for a save file first; if found, offer to continue or start fresh.
-#   Otherwise proceed with normal name + class selection.
-#   Build hero, weapon_stash, and equipped_armor based on class choice.
-#   Print a welcome message displaying the hero's starting stats.
-#   Set fight to False.
+#   Clear the screen
+#   Loop until the player enters a valid name (non-empty, letters/spaces only)
+#   Loop until the player enters a valid class choice (1-8)
+#   Build hero, weapon_stash, and equipped_armor based on class choice
+#   Print a welcome message displaying the hero's starting stats
+#   Set fight to False
 clear()
 
-# ----- Save-file check -------------------------------------------------------
-# Attempt to load an existing save.  If one exists, ask the player whether they
-# want to continue where they left off.
-_save_data  = load_game()
-_resume_index = 0          # area index to pass into story_loop later
-_loaded       = False      # flag: True if we restored from a save
+# ----- Name validation -------------------------------------------------------
+while True:
+    player_name = input("What is your name, Tarnished? ").strip()
+    if not player_name:
+        print("You must enter a name to continue.")
+    elif not all(c.isalpha() or c.isspace() for c in player_name):
+        print("Name must contain only letters and spaces.")
+    else:
+        break
 
-if _save_data:
-    print("Welcome back, this is where you left off. Continue? (yes/no)")
-    print(f"  Tarnished : {_save_data['name']}")
-    print(f"  Area      : {AREAS[min(_save_data['area_index'], len(AREAS)-1)]['name']}")
-    print(f"  HP        : {_save_data['health']}/{_save_data['max_health']}")
-    print(f"  Runes     : {_save_data['runes']}")
-    while True:
-        _cont = input("\nContinue? (yes/no): ").strip().lower()
-        if _cont == "yes":
-            _resume_index = restore_from_save(_save_data)
-            _loaded = True
-            print(f"\nWelcome back, {hero.name}. Grace guides you onward.")
-            break
-        elif _cont == "no":
-            print("\nVery well — a new journey begins. The old save will be overwritten.")
-            break
-        else:
-            print("Please type 'yes' or 'no'.")
+# ----- Class selection -------------------------------------------------------
+print("\nChoose your starting class:")
+print("  1. Vagabond    — High Health, strong Defense. A reliable fighter.")
+print("  2. Samurai     — High Speed, sharp Crit. Swift and deadly.")
+print("  3. Hero        — Massive Health, heavy Attacks. Slow but unstoppable.")
+print("  4. Warrior     — Balanced Speed and Attack. Dual-wield specialist.")
+print("  5. Astrologer  — Fragile but high Accuracy and Crit Damage. Glass cannon.")
+print("  6. Prophet     — Moderate stats with strong Healing. Flask cooldown reduced.")
+print("  7. Bandit      — High Crit Chance and Speed. Strikes fast and hard.")
+print("  8. Wretch      — No armor, no advantages. For the brave (or foolish).")
 
-# ----- Name validation (only for a new game) ---------------------------------
-if not _loaded:
-    while True:
-        player_name = input("What is your name, Tarnished? ").strip()
-        if not player_name:
-            print("You must enter a name to continue.")
-        elif not all(c.isalpha() or c.isspace() for c in player_name):
-            print("Name must contain only letters and spaces.")
-        else:
-            break
+while True:
+    class_choice = input("\nEnter a number (1-8): ").strip()
 
-# ----- Class selection (new game only) ---------------------------------------
-if not _loaded:
-    print("\nChoose your starting class:")
-    print("  1. Vagabond    — High Health, strong Defense. A reliable fighter.")
-    print("  2. Samurai     — High Speed, sharp Crit. Swift and deadly.")
-    print("  3. Hero        — Massive Health, heavy Attacks. Slow but unstoppable.")
-    print("  4. Warrior     — Balanced Speed and Attack. Dual-wield specialist.")
-    print("  5. Astrologer  — Fragile but high Accuracy and Crit Damage. Glass cannon.")
-    print("  6. Prophet     — Moderate stats with strong Healing. Flask cooldown reduced.")
-    print("  7. Bandit      — High Crit Chance and Speed. Strikes fast and hard.")
-    print("  8. Wretch      — No armor, no advantages. For the brave (or foolish).")
+    if class_choice == "1":
+        # Vagabond — tanky, high defense
+        hero = player(player_name, 130, 130, 100)
+        hero.defense = 6
+        hero.speed = 10
+        weapon_stash = [Weapon("Longsword", 16, 10, 80, 15, 1.5, "Square Off", 26, 0)]
+        equipped_armor = armor("Vagabond Knight Armor", 12, 3, 5, 1.2, 0)
+        break
 
-    while True:
-        class_choice = input("\nEnter a number (1-8): ").strip()
+    elif class_choice == "2":
+        # Samurai — fast, crit-focused
+        hero = player(player_name, 95, 95, 100)
+        hero.speed = 16
+        weapon_stash = [Weapon("Uchigatana", 18, 14, 86, 18, 1.6, "Unsheathe", 37, 0)]
+        equipped_armor = armor("Land of Reeds Armor", 8, 6, 8, 1.3, 0)
+        break
 
-        if class_choice == "1":
-            # Vagabond — tanky, high defense
-            hero = player(player_name, 130, 130, 100)
-            hero.defense = 6
-            hero.speed = 10
-            weapon_stash = [Weapon("Longsword", 16, 10, 80, 15, 1.5, "Square Off", 26, 0)]
-            equipped_armor = armor("Vagabond Knight Armor", 12, 3, 5, 1.2, 0)
-            break
+    elif class_choice == "3":
+        # Hero — massive HP, heavy hits, slow
+        hero = player(player_name, 150, 150, 100)
+        hero.defense = 4
+        hero.speed = 7
+        weapon_stash = [Weapon("Axe", 22, 7, 75, 10, 1.6, "Barbaric Roar", 36, 0)]
+        equipped_armor = armor("Champion Armor", 10, 1, 4, 1.3, 0)
+        break
 
-        elif class_choice == "2":
-            # Samurai — fast, crit-focused
-            hero = player(player_name, 95, 95, 100)
-            hero.speed = 16
-            weapon_stash = [Weapon("Uchigatana", 18, 14, 86, 18, 1.6, "Unsheathe", 37, 0)]
-            equipped_armor = armor("Land of Reeds Armor", 8, 6, 8, 1.3, 0)
-            break
+    elif class_choice == "4":
+        # Warrior — balanced speed and attack
+        hero = player(player_name, 105, 105, 100)
+        hero.speed = 14
+        weapon_stash = [Weapon("Scimitar", 17, 13, 84, 16, 1.6, "Spinning Slash", 28, 0)]
+        equipped_armor = armor("Warrior Armor", 8, 5, 7, 1.3, 0)
+        break
 
-        elif class_choice == "3":
-            # Hero — massive HP, heavy hits, slow
-            hero = player(player_name, 150, 150, 100)
-            hero.defense = 4
-            hero.speed = 7
-            weapon_stash = [Weapon("Axe", 22, 7, 75, 10, 1.6, "Barbaric Roar", 36, 0)]
-            equipped_armor = armor("Champion Armor", 10, 1, 4, 1.3, 0)
-            break
+    elif class_choice == "5":
+        # Astrologer — glass cannon, high accuracy and crit damage
+        hero = player(player_name, 80, 80, 100)
+        hero.speed = 12
+        weapon_stash = [Weapon("Astrologer's Staff", 14, 12, 94, 22, 2.0, "Glintstone Pebble", 28, 0)]
+        equipped_armor = armor("Astrologer Robe", 4, 7, 12, 1.5, 0)
+        break
 
-        elif class_choice == "4":
-            # Warrior — balanced speed and attack
-            hero = player(player_name, 105, 105, 100)
-            hero.speed = 14
-            weapon_stash = [Weapon("Scimitar", 17, 13, 84, 16, 1.6, "Spinning Slash", 28, 0)]
-            equipped_armor = armor("Warrior Armor", 8, 5, 7, 1.3, 0)
-            break
+    elif class_choice == "6":
+        # Prophet — moderate stats, heal cooldown starts at 0 (already default)
+        hero = player(player_name, 110, 110, 100)
+        hero.defense = 3
+        hero.speed = 11
+        hero.heal_cooldown_remaining = 0
+        weapon_stash = [Weapon("Short Spear", 15, 11, 82, 12, 1.5, "Sacred Blade", 26, 0)]
+        equipped_armor = armor("Prophet Robe", 5, 6, 6, 1.3, 0)
+        break
 
-        elif class_choice == "5":
-            # Astrologer — glass cannon, high accuracy and crit damage
-            hero = player(player_name, 80, 80, 100)
-            hero.speed = 12
-            weapon_stash = [Weapon("Astrologer's Staff", 14, 12, 94, 22, 2.0, "Glintstone Pebble", 28, 0)]
-            equipped_armor = armor("Astrologer Robe", 4, 7, 12, 1.5, 0)
-            break
+    elif class_choice == "7":
+        # Bandit — high crit chance and speed, fragile
+        hero = player(player_name, 88, 88, 100)
+        hero.speed = 18
+        weapon_stash = [Weapon("Dagger", 13, 18, 92, 28, 1.9, "Quickstep Stab", 24, 0)]
+        equipped_armor = armor("Black Knife Armor", 6, 8, 14, 1.6, 0)
+        break
 
-        elif class_choice == "6":
-            # Prophet — moderate stats, heal cooldown starts at 0 (already default)
-            hero = player(player_name, 110, 110, 100)
-            hero.defense = 3
-            hero.speed = 11
-            hero.heal_cooldown_remaining = 0
-            weapon_stash = [Weapon("Short Spear", 15, 11, 82, 12, 1.5, "Sacred Blade", 26, 0)]
-            equipped_armor = armor("Prophet Robe", 5, 6, 6, 1.3, 0)
-            break
+    elif class_choice == "8":
+        # Wretch — bare minimum everything
+        hero = player(player_name, 85, 85, 100)
+        hero.speed = 10
+        weapon_stash = [Weapon("Club", 12, 10, 78, 8, 1.4, "Wild Strikes", 20, 0)]
+        equipped_armor = armor("No Armor", 0, 0, 0, 1.0, 0)
+        break
 
-        elif class_choice == "7":
-            # Bandit — high crit chance and speed, fragile
-            hero = player(player_name, 88, 88, 100)
-            hero.speed = 18
-            weapon_stash = [Weapon("Dagger", 13, 18, 92, 28, 1.9, "Quickstep Stab", 24, 0)]
-            equipped_armor = armor("Black Knife Armor", 6, 8, 14, 1.6, 0)
-            break
-
-        elif class_choice == "8":
-            # Wretch — bare minimum everything
-            hero = player(player_name, 85, 85, 100)
-            hero.speed = 10
-            weapon_stash = [Weapon("Club", 12, 10, 78, 8, 1.4, "Wild Strikes", 20, 0)]
-            equipped_armor = armor("No Armor", 0, 0, 0, 1.0, 0)
-            break
-
-        else:
-            print("Please enter a number between 1 and 8.")
+    else:
+        print("Please enter a number between 1 and 8.")
 
 print(f"\nWelcome, {hero.name}!")
 print(f"HP: {hero.health}/{hero.max_health}  DEF: {hero.defense}  SPD: {hero.speed}\n")
 fight = False
 
 
-# ----- Story Introduction Loop (new game only) -------------------------------
-# When loading a saved game we skip the tutorial intro fight entirely and jump
-# straight into story_loop at the saved area.
-if not _loaded:
-    while True:
-        answer = input(
-            "\nThe fallen leaves tell a story of a Great Ring shattered and a Grace returned to the dead.\n"
-            "You awaken as a Tarnished in the cold, oppressive silence of the Chapel of Anticipation.\n"
-            "Beside you, a Finger Maiden lies slumped and still, her guidance lost to the dust.\n"
-            "The air is stagnant, smelling of ancient stone and rotted silk.\n\n"
-            "Two paths diverge within the ruins:\n"
-            "— To the LEFT, a balcony overlooking the fog-blanketed cliffs of Limgrave.\n"
-            "— To the RIGHT, a heavy iron gate leading toward a bridge of splintered wood.\n\n"
-            "Which path do you choose? (left/right): "
-        ).strip().lower()
+# Story Introduction Loop
+#   Loop forever
+#     Print the story intro text and prompt the player to choose "left" or "right"
+#     If the player chooses "left"
+#       Clear the screen and print the left-path narrative
+#       Set fight to True and break out of the loop
+#     Else if the player chooses "right"
+#       Clear the screen and print the right-path narrative
+#       Set fight to True and break out of the loop
+#     Else
+#       Print a message asking the player to choose left or right
+while True:
+    answer = input(
+        "\nThe fallen leaves tell a story of a Great Ring shattered and a Grace returned to the dead.\n"
+        "You awaken as a Tarnished in the cold, oppressive silence of the Chapel of Anticipation.\n"
+        "Beside you, a Finger Maiden lies slumped and still, her guidance lost to the dust.\n"
+        "The air is stagnant, smelling of ancient stone and rotted silk.\n\n"
+        "Two paths diverge within the ruins:\n"
+        "— To the LEFT, a balcony overlooking the fog-blanketed cliffs of Limgrave.\n"
+        "— To the RIGHT, a heavy iron gate leading toward a bridge of splintered wood.\n\n"
+        "Which path do you choose? (left/right): "
+    ).strip().lower()
 
-        if answer == "left":
-            prompt(
-                "\nYou step onto the balcony. The Erdtree glows in the distance, a beacon of golden grace.\n"
-                "As you gaze at the cliffs of the Lands Between, a many-limbed horror drops from the rafters!\n\n"
-                "A Grafted Scion, a nightmare stitched from the fallen, screeches as it lands.\n"
-                "You must defend your life, Tarnished!"
-            )
-            fight = True
-            break
+    if answer == "left":
+        prompt(
+            "\nYou step onto the balcony. The Erdtree glows in the distance, a beacon of golden grace.\n"
+            "As you gaze at the cliffs of the Lands Between, a many-limbed horror drops from the rafters!\n\n"
+            "A Grafted Scion, a nightmare stitched from the fallen, screeches as it lands.\n"
+            "You must defend your life, Tarnished!"
+        )
+        fight = True
+        break
 
-        elif answer == "right":
-            prompt(
-                "\nYou push through the iron gate. The bridge creaks and sways over the abyss below.\n"
-                "A message in golden light etched on the floor reads: 'Though the path be broken, seek the Elden Ring.'\n"
-                "A grotesque figure waits at the center, its golden blades ready to harvest your soul.\n\n"
-                "A Grafted Scion blocks your path! Prepare for battle."
-            )
-            fight = True
-            break
+    elif answer == "right":
+        prompt(
+            "\nYou push through the iron gate. The bridge creaks and sways over the abyss below.\n"
+            "A message in golden light etched on the floor reads: 'Though the path be broken, seek the Elden Ring.'\n"
+            "A grotesque figure waits at the center, its golden blades ready to harvest your soul.\n\n"
+            "A Grafted Scion blocks your path! Prepare for battle."
+        )
+        fight = True
+        break
 
-        else:
-            print("\nThe Golden Order demands a choice. Seek the guidance of grace: left or right.")
+    else:
+        print("\nThe Golden Order demands a choice. Seek the guidance of grace: left or right.")
+
 
 # ----- Story Loop ------------------------------------------------------------
-if _loaded:
-    # Resume directly at the saved area — no intro fight needed
-    delay(2)
-    story_loop(start_index=_resume_index)
-elif fight:
+if fight:
     delay(2)
     intro_enemy = monster("Grafted Scion")
     survived = battle_loop(intro_enemy)
@@ -1940,4 +1782,4 @@ elif fight:
             "Grace guides you forward. The road to the Erdtree begins. You are now in the Lands of Between.\n"
         )
         delay(6)
-        story_loop(start_index=0)
+        story_loop()

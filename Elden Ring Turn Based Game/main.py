@@ -861,3 +861,4 @@ elif fight:
         )
         delay(6)
         story_loop(start_index=0)
+

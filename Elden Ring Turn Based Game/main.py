@@ -479,14 +479,12 @@ def display_monster_stats(m):
     #       defense, and speed is printed; no return value
     print(f"  {m.name} — HP: {m.health}/{m.max_health}  ATK: {m.attack_power}  DEF: {m.defense}  SPD: {m.speed}")
 
-
 # Function prompt(text)
 #   Clear the terminal screen
 #   Print the given text
 def prompt(text):
     clear()
     print(text)
-
 
 # Function runesReward(enemy_type)
 #   Award runes to the hero based on the enemy defeated

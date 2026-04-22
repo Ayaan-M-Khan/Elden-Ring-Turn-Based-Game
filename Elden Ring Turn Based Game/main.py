@@ -444,14 +444,6 @@ heal_stash = [
     Heal("Flask of Crimson Tears", 50, 6),
 ]
 
-#  Area Data 
-
-
-
-
-
-
-
 # Function display_player_stats(p)
 #   Calculate total_def as p.defense + equipped_armor.defense
 #   Calculate total_spd as p.speed + equipped_armor.speed
@@ -467,7 +459,6 @@ def display_player_stats(p):
     total_spd = p.speed + equipped_armor.speed
     flask_quantity = heal_stash[0].heal_quantity
     print(f"  {p.name} — HP: {p.health}/{p.max_health}  SPD: {total_spd}  DEF: {total_def}  Flasks: {flask_quantity}")
-
 
 # Function display_monster_stats(m)
 #   Print a formatted line showing the monster's name, HP, attack power,
@@ -499,7 +490,7 @@ def runesReward(enemy_type):
         "Elden Beast"
     ]
     if enemy_type in bosses:
-        reward = 100
+        reward = 10000
     hero.runes += reward
     print(f"You gained {reward} runes! Total: {hero.runes}")
 

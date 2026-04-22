@@ -1,0 +1,40 @@
+{
+  "name": "ayaan",
+  "health": 95,
+  "max_health": 95,
+  "runes": 7,
+  "defense": 0,
+  "speed": 16,
+  "accuracy": 0,
+  "crit_chance": 0,
+  "crit_damage": 0,
+  "heal_cooldown_remaining": 0,
+  "special_attack_cooldown": 0,
+  "area_index": 1,
+  "weapons": [
+    {
+      "name": "Uchigatana",
+      "attack_power": 18,
+      "speed": 14,
+      "accuracy": 86,
+      "crit_chance": 18,
+      "crit_damage": 1.6,
+      "special_attack_name": "Unsheathe",
+      "special_attack_damage": 37,
+      "cost": 0
+    }
+  ],
+  "armor": {
+    "name": "Raging Wolf Set",
+    "defense": 14,
+    "speed": 5,
+    "crit_chance": 10,
+    "crit_damage": 1.4,
+    "cost": 1500
+  },
+  "flask": {
+    "heal_name": "Flask of Crimson Tears",
+    "heal_amount": 50,
+    "heal_quantity": 5
+  }
+}

@@ -42,7 +42,6 @@ import random
 import time
 import json
 import storyline
-from storyline import shop 
 
 # Function delay(delay_time)
 #   sleep the program for delay_time seconds
@@ -676,7 +675,7 @@ def story_loop(start_index=0):
             prompt(area["rest_text"])
             hero.health = hero.max_health
             input("\nPress Enter to continue...")
-            shop()
+            storyline.shop()
             # Save after the shop so purchased gear is persisted
             save_game(area_index + 1)
 

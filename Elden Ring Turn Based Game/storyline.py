@@ -4,7 +4,6 @@
 import os
 import random
 import time
-import main
 
 # Function delay(delay_time)
 #   sleep the program for delay_time seconds
@@ -1142,6 +1141,7 @@ armor_storage = [
 #   Minions give small rune rewards, bosses give large rewards
 #   Print the runes earned and hero's new total
 def runesReward(enemy_type):
+    import main
     # PRE:  enemy_type is a string matching a key in monster.ENEMY_TYPES;
     #       hero is a global player object with a runes attribute
     # POST: A random rune amount scaled to the enemy's difficulty is added
@@ -1271,6 +1271,7 @@ def runesReward(enemy_type):
 #     If choice is "leave": break
 #     Else: print error
 def shop():
+    import main
     # PRE:  hero is a global player object with runes attribute;
     #       weapon_storage, armor_storage are non-empty lists;
     #       heal_stash[0] is the player's flask object;

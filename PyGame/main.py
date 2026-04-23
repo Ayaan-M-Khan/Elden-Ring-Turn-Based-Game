@@ -341,6 +341,8 @@ class Gun(Weapon):
                           bps=1, color=(150, 200, 255), radius=4, barrel=18, mag_size=25, total_ammo=200),
         "Sniper": dict(damage=40, speed=14, fire_rate=1200, spread=0.01,
                           bps=1, color=(180, 100, 50), radius=6, barrel=32, mag_size=5, total_ammo=25),
+        "Machine Gun": dict(damage=6,  speed=9,  fire_rate=50,  spread=0.15,
+                          bps=1, color=(100, 100, 100), radius=4, barrel=26, mag_size=100, total_ammo=500)
     }
 
     def __init__(self, gun_type="Pistol", from_chest=False):
@@ -415,6 +417,8 @@ class Gun(Weapon):
             width = 5
         elif self.gun_type == "Revolver":
             width = 7
+        elif self.gun_type == "Machine Gun":
+            width = 6
 
         pygame.draw.line(surface, C_GREY, (int(cx), int(cy)), (int(ex), int(ey)), width)
 
@@ -437,6 +441,10 @@ class Gun(Weapon):
         elif self.gun_type == "Revolver":
             pygame.draw.circle(surface, (180, 180, 180), (int(cx - 6), int(cy - 6)), 6, 2)
         elif self.gun_type == "Sniper Rifle":
+            scope_x = cx + math.cos(self.angle) * (self.barrel * 0.5)
+            scope_y = cy + math.sin(self.angle) * (self.barrel * 0.5)
+            pygame.draw.circle(surface, (200, 200, 120), (int(scope_x), int(scope_y)), 4, 1)
+        elif self.gun_type == "Machine Gun":
             scope_x = cx + math.cos(self.angle) * (self.barrel * 0.5)
             scope_y = cy + math.sin(self.angle) * (self.barrel * 0.5)
             pygame.draw.circle(surface, (200, 200, 120), (int(scope_x), int(scope_y)), 4, 1)
@@ -1042,6 +1050,7 @@ class Chest:
         lambda: Gun("SMG", from_chest=True),
         lambda: Gun("Sniper", from_chest=True),
         lambda: Gun("Pistol", from_chest=True),
+        lambda: Gun("Machine Gun", from_chest=True),
     ]
 
     def __init__(self, col, row):
@@ -1610,6 +1619,12 @@ def run():
         weapon = inventory.active_weapon
         if isinstance(weapon, Sword): weapon.update(player.rect)
         elif isinstance(weapon, Gun): weapon.update_angle(player.rect)
+
+        # ── CONTINUOUS FIRING (held F key) ──────────────────────────
+        if pygame.key.get_pressed()[pygame.K_f] and game_active and not inventory.open:
+            w = inventory.active_weapon
+            if isinstance(w, Gun):  bullets.extend(w.fire(player.rect))
+            elif isinstance(w, Sword): w.swing(player.rect)
 
         # ── BULLETS ─────────────────────────────────────────────────
         for b in bullets[:]:

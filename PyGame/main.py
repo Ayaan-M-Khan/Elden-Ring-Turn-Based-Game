@@ -1238,10 +1238,8 @@ class Boss(GameEntity):
             tx, ty = player_rect.centerx, player_rect.centery
         dx, dy  = tx - self.rect.centerx, ty - self.rect.centery
         nx, ny  = norm(dx, dy)
-        health_ratio = max(0.0, min(1.0, self.health / self.max_health))
-        speed_boost  = 1.0 + (1.0 - health_ratio) * 0.6
-        move_x  = nx * self.speed * speed_boost
-        move_y  = ny * self.speed * speed_boost
+        move_x  = nx * self.speed
+        move_y  = ny * self.speed
         self.facing = math.atan2(dy, dx)
 
         self.rect.x += int(move_x)
@@ -1349,7 +1347,7 @@ def draw_hud(surface, player, chests, inventory, font_sm, font_xs, current_level
 
     # Highlight boss level
     if current_level == BOSS_LEVEL:
-        boss_warn = font_xs.render("  BOSS LEVEL  ", True, (255, 60, 255))
+        boss_warn = font_xs.render("⚠  BOSS LEVEL  ⚠", True, (255, 60, 255))
         surface.blit(boss_warn, (sw // 2 - boss_warn.get_width() // 2, pad + 38))
 
     # ── Chest prompt ────────────────────────────────────────────────
@@ -1434,21 +1432,12 @@ def make_level(grid, current_level, keep_player=None):
     else:
         player = Player(p_col, p_row)
 
-    # ── Gate  — bottom middle of the room ───────────────────────────
-    g_col = COLS // 2
-    g_row = ROWS - 2
-    # Make sure gate tile is walkable; drift horizontally if needed
-    offset = 0
-    while not grid[g_row][g_col] and offset < COLS // 2:
-        offset += 1
-        left  = max(2, g_col - offset)
-        right = min(COLS - 3, g_col + offset)
-        if grid[g_row][left]:
-            g_col = left
-            break
-        if grid[g_row][right]:
-            g_col = right
-            break
+    # ── Gate  — far corner ──────────────────────────────────────────
+    g_col = COLS - 3
+    g_row = ROWS - 3
+    # Make sure gate tile is walkable
+    while not grid[g_row][g_col] and g_col > 2:
+        g_col -= 1
     occupied.add((g_col, g_row))
     gate = Gate(g_col, g_row)
 
